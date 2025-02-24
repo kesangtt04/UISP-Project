@@ -113,4 +113,51 @@ public class AuthController {
                 header(HttpHeaders.SET_COOKIE, resCookies.toString())
                 .body(resLoginDTO);
     }
+    @GetMapping("/auth/refresh")
+    @ApiMessage("Get User by refresh token")
+    public ResponseEntity<ResLoginDTO> getRefreshToken( @CookieValue(name = "refresh_token1",defaultValue = "ABC") String refresh_token)
+            throws IdInValidException {
+        ResLoginDTO resLoginDTO = new ResLoginDTO();
+        //check refresh_token
+        Jwt decodedToken = this.securityUtil.checkValidRefreshToken(refresh_token);
+        String email = decodedToken.getSubject();
+
+        User current = this.userService.getUserByRefreshTokenAndEmail(refresh_token, email);
+        if (current == null) {
+            throw new IdInValidException("Refresh Token khong hop le");
+        }
+
+        if (current != null) {
+            ResLoginDTO.UserLogin userLogin = new ResLoginDTO.UserLogin(
+                    current.getId()
+                    , current.getEmail()
+                    , current.getFullname()
+                    , current.getRole())
+                    ;
+
+            resLoginDTO.setUserLogin(userLogin);
+        }
+
+        //create a token => can viet ham loadUserByUsername
+        String AccessToken = this.securityUtil.createAcessToken(email, resLoginDTO);
+
+        resLoginDTO.setAccessToken(AccessToken);
+
+        //create refresh token
+        String new_refresh_token = this.securityUtil.createRefreshToken(email, resLoginDTO);
+        //update user
+        this.userService.updateUserToken(new_refresh_token, email);
+
+        //set cookies
+        ResponseCookie resCookies = ResponseCookie.from("refresh_token1", new_refresh_token)
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(refreshTokenExpiration)
+                .build();
+
+        return ResponseEntity.ok().
+                header(HttpHeaders.SET_COOKIE, resCookies.toString()).body(resLoginDTO);
+    }
+
 }

@@ -72,4 +72,8 @@ public class UserService {
         user.setRefreshToken(refresh_token);
         this.userRepositoy.save(user);
     }
+    public User getUserByRefreshTokenAndEmail(String email,String refreshToken)
+    {
+        return this.userRepositoy.findByEmailAndRefreshToken(email,refreshToken);
+    }
 }

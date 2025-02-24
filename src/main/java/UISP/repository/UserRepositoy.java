@@ -9,4 +9,5 @@ import org.springframework.stereotype.Repository;
 public interface UserRepositoy extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
     User save(User user);
     User findByEmail(String email);
+    User findByEmailAndRefreshToken(String email, String refreshToken);
 }
