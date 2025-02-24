@@ -1,0 +1,116 @@
+package UISP.controller.user;
+
+import UISP.domain.User;
+import UISP.domain.request.ReqDTO;
+import UISP.domain.response.ResLoginDTO;
+import UISP.domain.response.UserDTO;
+import UISP.service.EmailService;
+import UISP.service.UserService;
+import UISP.util.ApiMessage;
+import UISP.util.SecurityUtil;
+import UISP.util.constant.Enable;
+import UISP.util.error.IdInValidException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1")
+public class AuthController {
+    private final UserService userService;
+    private final SecurityUtil securityUtil;
+    private final EmailService emailService;
+    private final AuthenticationManagerBuilder authenticationManagerBuilder;
+
+    public AuthController(UserService userService, SecurityUtil securityUtil, EmailService emailService, AuthenticationManagerBuilder authenticationManagerBuilder) {
+        this.userService = userService;
+        this.securityUtil = securityUtil;
+        this.emailService = emailService;
+        this.authenticationManagerBuilder = authenticationManagerBuilder;
+    }
+    @Value("${uisp.jwt.refresh-token-validity-in-seconds}")
+    private long refreshTokenExpiration;
+
+    @PostMapping("/auth/register")
+    @ApiMessage("Register Account")
+    public ResponseEntity<UserDTO> register(@RequestBody User user) throws IdInValidException {
+        if(this.userService.findByEmail(user.getEmail())!=null){
+            throw new IdInValidException("User has been exists!");
+        }
+        UserDTO userDTO=this.userService.CreateUser(user);
+        this.emailService.sendLinkVerify(user.getEmail(), user.getFullname());
+
+        return ResponseEntity.ok().body(userDTO);
+}
+
+    @PostMapping("/auth/verify")
+    @ApiMessage("Verify Account")
+    public ResponseEntity<UserDTO> verify(@RequestParam(name = "token") String token) throws IdInValidException {
+        Jwt UserToken=this.securityUtil.checkValidRefreshToken(token);
+        String email=UserToken.getSubject();
+        User user=this.userService.findByEmail(email);
+        if(user==null){
+            throw new IdInValidException("User hasn't exists!");
+        }
+        user.setEnable(Enable.ENABLE);
+        this.userService.Save(user);
+        return ResponseEntity.ok().body(this.userService.UserToDTO(user));
+    }
+    @PostMapping("/auth/login")
+    @ApiMessage("Login Account")
+    public ResponseEntity<ResLoginDTO> login(@RequestBody ReqDTO user) throws IdInValidException {
+        User currentUserDB=this.userService.findByEmail(user.getEmail());
+        if(currentUserDB==null)
+        {
+            throw new IdInValidException("User hasn't exists!");
+        }
+
+        UsernamePasswordAuthenticationToken token=new UsernamePasswordAuthenticationToken(user.getEmail(), user.getPassword());
+
+        //xac thuc
+        Authentication authentication = authenticationManagerBuilder.getObject().authenticate(token);
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        ResLoginDTO resLoginDTO = new ResLoginDTO();
+
+        if (currentUserDB != null) {
+            ResLoginDTO.UserLogin userLogin = new ResLoginDTO.UserLogin(
+                    currentUserDB.getId()
+                    , currentUserDB.getEmail()
+                    , currentUserDB.getFullname()
+                    , currentUserDB.getRole());
+
+            resLoginDTO.setUserLogin(userLogin);
+        }
+
+        //create a token => can viet ham loadUserByUsername
+        String AccessToken = this.securityUtil.createAcessToken(authentication.getName(), resLoginDTO);
+
+        resLoginDTO.setAccessToken(AccessToken);
+
+        //create refresh token
+        String refresh_token = this.securityUtil.createRefreshToken(currentUserDB.getEmail(), resLoginDTO);
+        //update user
+        this.userService.updateUserToken(refresh_token, currentUserDB.getEmail());
+
+        //set cookies
+        ResponseCookie resCookies = ResponseCookie.from("refresh_token1", refresh_token)
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(refreshTokenExpiration)
+                .build();
+
+        return ResponseEntity.ok().
+                header(HttpHeaders.SET_COOKIE, resCookies.toString())
+                .body(resLoginDTO);
+    }
+}
