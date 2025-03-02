@@ -12,10 +12,13 @@ public class RedisService {
     }
 
     public void saveData(String key, Object value) {
-        redisTemplate.opsForValue().set(key, value);
+        redisTemplate.opsForSet().add(key, value);
     }
 
     public Object getData(String key) {
         return redisTemplate.opsForValue().get(key);
+    }
+    public void delete(String key) {
+        redisTemplate.delete(key);
     }
 }
